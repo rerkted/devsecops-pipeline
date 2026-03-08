@@ -24,6 +24,11 @@ on:
         description: 'Result of the security stage'
         type: string
         required: true
+      build-result:
+        description: 'Result of the build stage (optional — omit if no build step)'
+        type: string
+        required: false
+        default: ''
       deploy-result:
         description: 'Result of the deploy stage'
         type: string
@@ -32,6 +37,11 @@ on:
         description: 'Result of the verify stage'
         type: string
         required: true
+      dast-result:
+        description: 'Result of the DAST stage (optional — omit if no DAST step)'
+        type: string
+        required: false
+        default: ''
       cleanup-result:
         description: 'Result of the cleanup stage'
         type: string
@@ -64,9 +74,15 @@ jobs:
           echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Stage 1 — Security | $(pass_or_fail '${{ inputs.security-result }}') |" >> $GITHUB_STEP_SUMMARY
-          echo "| Stage 2 — Deploy   | $(pass_or_fail '${{ inputs.deploy-result }}') |" >> $GITHUB_STEP_SUMMARY
-          echo "| Stage 3 — Verify   | $(pass_or_fail '${{ inputs.verify-result }}') |" >> $GITHUB_STEP_SUMMARY
-          echo "| Stage 4 — Cleanup  | $(pass_or_fail '${{ inputs.cleanup-result }}') |" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ inputs.build-result }}" ]; then
+            echo "| Stage 2 — Build    | $(pass_or_fail '${{ inputs.build-result }}') |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "| Stage 3 — Deploy   | $(pass_or_fail '${{ inputs.deploy-result }}') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage 4 — Verify   | $(pass_or_fail '${{ inputs.verify-result }}') |" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ inputs.dast-result }}" ]; then
+            echo "| Stage 5 — DAST     | $(pass_or_fail '${{ inputs.dast-result }}') |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "| Stage 6 — Cleanup  | $(pass_or_fail '${{ inputs.cleanup-result }}') |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -80,8 +96,10 @@ jobs:
       - name: Fail if any stage failed
         if: |
           inputs.security-result == 'failure' ||
+          inputs.build-result == 'failure' ||
           inputs.deploy-result == 'failure' ||
           inputs.verify-result == 'failure' ||
+          inputs.dast-result == 'failure' ||
           inputs.cleanup-result == 'failure'
         run: |
           echo "One or more stages failed — see summary above"
