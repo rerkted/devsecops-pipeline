@@ -1,0 +1,88 @@
+# ─── .github/workflows/done.yml ──────────────────────────────────
+# Reusable done/summary workflow — always runs last
+# Reports pass/fail for every pipeline stage in the GitHub summary tab
+#
+# Usage from calling repo:
+#   done:
+#     needs: [security, deploy, verify, cleanup]
+#     if: always()
+#     uses: rerkted/devsecops-pipeline/.github/workflows/done.yml@main
+#     with:
+#       security-result: ${{ needs.security.result }}
+#       deploy-result: ${{ needs.deploy.result }}
+#       verify-result: ${{ needs.verify.result }}
+#       cleanup-result: ${{ needs.cleanup.result }}
+#       service-name: Grafana Stack
+#       service-url: https://grafana.rerktserver.com
+
+name: Done
+
+on:
+  workflow_call:
+    inputs:
+      security-result:
+        description: 'Result of the security stage'
+        type: string
+        required: true
+      deploy-result:
+        description: 'Result of the deploy stage'
+        type: string
+        required: true
+      verify-result:
+        description: 'Result of the verify stage'
+        type: string
+        required: true
+      cleanup-result:
+        description: 'Result of the cleanup stage'
+        type: string
+        required: true
+      service-name:
+        description: 'Display name of the service'
+        type: string
+        required: true
+      service-url:
+        description: 'URL of the deployed service'
+        type: string
+        required: false
+        default: ''
+
+jobs:
+  done:
+    name: Done
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Pipeline summary
+        run: |
+          pass_or_fail() {
+            if [ "$1" = "success" ]; then echo "passed"; else echo "$1"; fi
+          }
+
+          echo "## ${{ inputs.service-name }} — Pipeline Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage 1 — Security | $(pass_or_fail '${{ inputs.security-result }}') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage 2 — Deploy   | $(pass_or_fail '${{ inputs.deploy-result }}') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage 3 — Verify   | $(pass_or_fail '${{ inputs.verify-result }}') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage 4 — Cleanup  | $(pass_or_fail '${{ inputs.cleanup-result }}') |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ inputs.service-url }}" ]; then
+            echo "| URL | ${{ inputs.service-url }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "| Git SHA | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Completed at | $(date -u) |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail if any stage failed
+        if: |
+          inputs.security-result == 'failure' ||
+          inputs.deploy-result == 'failure' ||
+          inputs.verify-result == 'failure' ||
+          inputs.cleanup-result == 'failure'
+        run: |
+          echo "One or more stages failed — see summary above"
+          exit 1

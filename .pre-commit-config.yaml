@@ -1,0 +1,17 @@
+# ─── .pre-commit-config.yaml ─────────────────────────────────────
+# Pre-commit hooks — catches secrets before they reach GitHub
+# Aligns with: OWASP DevSecOps Guidelines (shift-left secrets detection)
+#
+# Setup (run once per repo):
+#   pip install pre-commit
+#   pre-commit install
+#
+# Manual scan of full history:
+#   pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+        name: Detect secrets (GitLeaks)

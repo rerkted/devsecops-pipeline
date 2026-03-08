@@ -1,0 +1,55 @@
+# ─── .github/workflows/dast.yml ──────────────────────────────────
+# Reusable DAST workflow — OWASP ZAP baseline scan
+# Runs against a live application after deployment
+# Aligns with: OWASP DevSecOps Guidelines + OWASP SAMM Verification Level 2
+#
+# Usage from calling repo (post-deploy):
+#   dast:
+#     needs: deploy
+#     uses: rerkted/devsecops-pipeline/.github/workflows/dast.yml@main
+#     with:
+#       target-url: https://rerktserver.com
+#     permissions:
+#       contents: read
+#       issues: write
+
+name: DAST Scan
+
+on:
+  workflow_call:
+    inputs:
+      target-url:
+        description: 'URL of the live application to scan'
+        type: string
+        required: true
+      fail-on-findings:
+        description: 'Fail the pipeline on DAST findings'
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  owasp-zap:
+    name: DAST (OWASP ZAP)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: ${{ inputs.target-url }}
+          fail_action: ${{ inputs.fail-on-findings }}
+          cmd_options: '-a'
+
+      - name: Upload ZAP HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-report-${{ github.run_number }}
+          path: report_html.html
+          retention-days: 30

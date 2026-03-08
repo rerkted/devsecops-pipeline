@@ -1,0 +1,138 @@
+# ─── .github/workflows/security.yml ──────────────────────────────
+# Reusable security scanning workflow
+# Covers: Secrets (GitLeaks), IaC (Checkov), SCA (npm audit), SAST (CodeQL)
+# Aligns with: OWASP DevSecOps Guidelines + OWASP SAMM Verification Level 2
+#
+# Usage from calling repo:
+#   security:
+#     uses: rerkted/devsecops-pipeline/.github/workflows/security.yml@main
+#     with:
+#       terraform-dir: terraform
+#       node-dirs: '. chat bedrock'
+#     permissions:
+#       security-events: write
+#       actions: read
+#       contents: read
+
+name: Security Scans
+
+on:
+  workflow_call:
+    inputs:
+      terraform-dir:
+        description: 'Path to Terraform directory (leave empty to skip IaC scan)'
+        type: string
+        required: false
+        default: 'terraform'
+      node-dirs:
+        description: 'Space-separated list of Node.js app directories for SCA'
+        type: string
+        required: false
+        default: '.'
+      language:
+        description: 'CodeQL language to scan (javascript, python, go, etc.)'
+        type: string
+        required: false
+        default: 'javascript'
+      fail-on-findings:
+        description: 'Fail the pipeline on security findings'
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  # ── JOB 1: Secrets Scan ──────────────────────────────────────
+  secrets-scan:
+    name: Secrets Scan (GitLeaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false
+
+  # ── JOB 2: IaC Scan ──────────────────────────────────────────
+  iac-scan:
+    name: IaC Scan (Checkov)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: ${{ inputs.terraform-dir }}
+          framework: terraform
+          soft_fail: true
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+
+      - name: Upload Checkov results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov-results.sarif
+          category: checkov
+
+  # ── JOB 3: SCA — Dependency Scan ─────────────────────────────
+  sca:
+    name: SCA — Dependency Scan (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run npm audit across all app directories
+        run: |
+          EXIT_CODE=0
+          for dir in ${{ inputs.node-dirs }}; do
+            if [ -f "$dir/package.json" ]; then
+              echo "── Scanning $dir ──"
+              cd "$dir"
+              npm audit --audit-level=high || EXIT_CODE=$?
+              cd - > /dev/null
+            fi
+          done
+          if [ "${{ inputs.fail-on-findings }}" = "true" ]; then
+            exit $EXIT_CODE
+          fi
+
+  # ── JOB 4: SAST ──────────────────────────────────────────────
+  sast:
+    name: SAST (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ inputs.language }}
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ inputs.language }}"
