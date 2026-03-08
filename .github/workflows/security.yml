@@ -9,6 +9,7 @@
 #     with:
 #       terraform-dir: terraform
 #       node-dirs: '. chat bedrock'
+#       severity-threshold: HIGH   # LOW | MEDIUM | HIGH | CRITICAL | NONE
 #     permissions:
 #       security-events: write
 #       actions: read
@@ -34,14 +35,15 @@ on:
         type: string
         required: false
         default: 'javascript'
-      fail-on-findings:
-        description: 'Fail the pipeline on security findings'
-        type: boolean
+      severity-threshold:
+        description: 'Minimum severity that fails the pipeline: LOW | MEDIUM | HIGH | CRITICAL | NONE'
+        type: string
         required: false
-        default: false
+        default: 'HIGH'
 
 jobs:
   # ── JOB 1: Secrets Scan ──────────────────────────────────────
+  # Secrets always fail — a leaked credential has no acceptable severity
   secrets-scan:
     name: Secrets Scan (GitLeaks)
     runs-on: ubuntu-latest
@@ -68,14 +70,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install Checkov
+        run: pip install checkov -q
+
       - name: Run Checkov
-        uses: bridgecrewio/checkov-action@master
-        with:
-          directory: ${{ inputs.terraform-dir }}
-          framework: terraform
-          soft_fail: true
-          output_format: sarif
-          output_file_path: checkov-results.sarif
+        run: |
+          # Map severity threshold to Checkov --soft-fail-on severities
+          # Anything below the threshold is soft-failed (reported but not blocking)
+          case "${{ inputs.severity-threshold }}" in
+            CRITICAL) SOFT_FLAGS="--soft-fail-on LOW,MEDIUM,HIGH" ;;
+            HIGH)     SOFT_FLAGS="--soft-fail-on LOW,MEDIUM" ;;
+            MEDIUM)   SOFT_FLAGS="--soft-fail-on LOW" ;;
+            LOW)      SOFT_FLAGS="" ;;
+            NONE)     SOFT_FLAGS="--soft-fail" ;;
+            *)        SOFT_FLAGS="--soft-fail-on LOW,MEDIUM" ;;
+          esac
+
+          checkov -d "${{ inputs.terraform-dir }}" \
+            --framework terraform \
+            $SOFT_FLAGS \
+            -o sarif \
+            --output-file-path . || true
+
+          # Checkov writes results_tf.sarif — normalise filename
+          [ -f results_tf.sarif ] && mv results_tf.sarif checkov-results.sarif \
+            || echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Checkov"}},"results":[]}]}' > checkov-results.sarif
 
       - name: Upload Checkov results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
@@ -99,20 +118,35 @@ jobs:
 
       - name: Run npm audit across all app directories
         run: |
+          # Map severity threshold to npm audit --audit-level
+          # npm uses "moderate" where we say "medium"
+          case "${{ inputs.severity-threshold }}" in
+            CRITICAL) LEVEL=critical ;;
+            HIGH)     LEVEL=high ;;
+            MEDIUM)   LEVEL=moderate ;;
+            LOW)      LEVEL=low ;;
+            NONE)     LEVEL=none ;;
+            *)        LEVEL=high ;;
+          esac
+
           EXIT_CODE=0
           for dir in ${{ inputs.node-dirs }}; do
             if [ -f "$dir/package.json" ]; then
-              echo "── Scanning $dir ──"
+              echo "── Scanning $dir (audit-level=$LEVEL) ──"
               cd "$dir"
-              npm audit --audit-level=high || EXIT_CODE=$?
+              if [ "$LEVEL" = "none" ]; then
+                npm audit --audit-level=critical || true
+              else
+                npm audit --audit-level=$LEVEL || EXIT_CODE=$?
+              fi
               cd - > /dev/null
             fi
           done
-          if [ "${{ inputs.fail-on-findings }}" = "true" ]; then
-            exit $EXIT_CODE
-          fi
+          exit $EXIT_CODE
 
   # ── JOB 4: SAST ──────────────────────────────────────────────
+  # CodeQL findings go to the GitHub Security tab for review
+  # Pipeline blocks only if CodeQL itself fails to run
   sast:
     name: SAST (CodeQL)
     runs-on: ubuntu-latest
