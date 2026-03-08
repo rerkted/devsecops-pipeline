@@ -124,15 +124,42 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Detect source files for language
+        id: detect
+        run: |
+          case "${{ inputs.language }}" in
+            javascript)
+              COUNT=$(find . -name "*.js" -o -name "*.ts" | grep -v node_modules | grep -v ".git" | wc -l)
+              ;;
+            python)
+              COUNT=$(find . -name "*.py" | grep -v ".git" | wc -l)
+              ;;
+            go)
+              COUNT=$(find . -name "*.go" | grep -v ".git" | wc -l)
+              ;;
+            *)
+              COUNT=0
+              ;;
+          esac
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+          if [ "$COUNT" -gt 0 ]; then
+            echo "Found $COUNT source file(s) for ${{ inputs.language }} — running CodeQL"
+          else
+            echo "No ${{ inputs.language }} source files found — skipping CodeQL"
+          fi
+
       - name: Initialize CodeQL
+        if: steps.detect.outputs.count > 0
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ inputs.language }}
 
       - name: Autobuild
+        if: steps.detect.outputs.count > 0
         uses: github/codeql-action/autobuild@v3
 
       - name: Run CodeQL analysis
+        if: steps.detect.outputs.count > 0
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ inputs.language }}"
