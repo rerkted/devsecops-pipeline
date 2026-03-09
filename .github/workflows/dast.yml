@@ -5,10 +5,11 @@
 #
 # Usage from calling repo (post-deploy):
 #   dast:
-#     needs: deploy
+#     needs: verify
 #     uses: rerkted/devsecops-pipeline/.github/workflows/dast.yml@main
 #     with:
 #       target-url: https://rerktserver.com
+#       severity-threshold: HIGH   # LOW | MEDIUM | HIGH | NONE
 #     permissions:
 #       contents: read
 #       issues: write
@@ -22,11 +23,11 @@ on:
         description: 'URL of the live application to scan'
         type: string
         required: true
-      fail-on-findings:
-        description: 'Fail the pipeline on DAST findings'
-        type: boolean
+      severity-threshold:
+        description: 'Minimum severity that fails the pipeline: LOW | MEDIUM | HIGH | NONE'
+        type: string
         required: false
-        default: false
+        default: 'HIGH'
 
 jobs:
   owasp-zap:
@@ -39,12 +40,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Resolve ZAP alert level
+        id: zap-config
+        run: |
+          # Map severity threshold to ZAP -l (minimum alert level to report)
+          # ZAP levels: Informational, Low, Medium, High
+          case "${{ inputs.severity-threshold }}" in
+            LOW)    echo "level=Low"  >> $GITHUB_OUTPUT; echo "fail=true"  >> $GITHUB_OUTPUT ;;
+            MEDIUM) echo "level=Medium" >> $GITHUB_OUTPUT; echo "fail=true"  >> $GITHUB_OUTPUT ;;
+            HIGH)   echo "level=High" >> $GITHUB_OUTPUT; echo "fail=true"  >> $GITHUB_OUTPUT ;;
+            NONE)   echo "level=High" >> $GITHUB_OUTPUT; echo "fail=false" >> $GITHUB_OUTPUT ;;
+            *)      echo "level=High" >> $GITHUB_OUTPUT; echo "fail=true"  >> $GITHUB_OUTPUT ;;
+          esac
+
       - name: ZAP baseline scan
         uses: zaproxy/action-baseline@v0.12.0
         with:
           target: ${{ inputs.target-url }}
-          fail_action: ${{ inputs.fail-on-findings }}
-          cmd_options: '-a'
+          fail_action: ${{ steps.zap-config.outputs.fail }}
+          cmd_options: '-a -l ${{ steps.zap-config.outputs.level }}'
 
       - name: Upload ZAP HTML report
         uses: actions/upload-artifact@v4
