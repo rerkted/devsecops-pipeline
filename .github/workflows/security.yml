@@ -84,84 +84,16 @@ jobs:
             *)        SOFT_FLAGS="--soft-fail-on LOW,MEDIUM" ;;
           esac
 
-          # Run with JSON (color display) + SARIF (Security tab upload)
+          # Run with CLI (color output to log) + SARIF (Security tab upload)
           # set +e to capture exit code — bash -eo pipefail would exit before $? is saved
           set +e
           checkov -d "${{ inputs.terraform-dir }}" \
             --framework terraform \
             $SOFT_FLAGS \
-            -o json -o sarif \
+            -o cli -o sarif \
             --output-file-path .
           CHECKOV_EXIT=$?
           set -e
-
-          # Color-coded findings summary
-          python3 - <<'EOF'
-import json, sys
-
-RESET  = "\033[0m"
-BOLD   = "\033[1m"
-COLORS = {
-    "CRITICAL":      "\033[91m",  # bright red
-    "HIGH":          "\033[31m",  # red
-    "MEDIUM":        "\033[33m",  # yellow
-    "LOW":           "\033[34m",  # blue
-    "INFO":          "\033[32m",  # green
-    "INFORMATIONAL": "\033[32m",  # green
-}
-ANNOTATIONS = {
-    "CRITICAL": "error",   "HIGH": "error",
-    "MEDIUM":   "warning",
-    "LOW":      "notice",  "INFO": "notice", "INFORMATIONAL": "notice",
-}
-ICONS = {
-    "CRITICAL": "✖", "HIGH": "✖", "MEDIUM": "⚠", "LOW": "ℹ", "INFO": "✔", "INFORMATIONAL": "✔",
-}
-
-try:
-    with open("results_tf.json") as f:
-        data = json.load(f)
-except FileNotFoundError:
-    print("No JSON output found — skipping color summary")
-    sys.exit(0)
-
-entries = data if isinstance(data, list) else [data]
-failed  = [c for e in entries for c in e.get("results", {}).get("failed_checks", [])]
-passed  = sum(len(e.get("results", {}).get("passed_checks", [])) for e in entries)
-
-print(f"\n{BOLD}{'─'*64}{RESET}")
-print(f"{BOLD}  Checkov IaC Scan Results{RESET}")
-print(f"{BOLD}{'─'*64}{RESET}\n")
-
-if not failed:
-    print(f"  \033[32m✔ All checks passed ({passed} passed){RESET}\n")
-else:
-    counts = {}
-    for check in failed:
-        sev = (check.get("severity") or "UNKNOWN").upper()
-        counts[sev] = counts.get(sev, 0) + 1
-        c   = COLORS.get(sev, RESET)
-        ann = ANNOTATIONS.get(sev, "notice")
-        icon = ICONS.get(sev, "?")
-        cid  = check.get("check_id", "")
-        name = check.get("check", {}).get("name", "") if isinstance(check.get("check"), dict) else ""
-        res  = check.get("resource", "")
-        fp   = check.get("file_path", "")
-        print(f"  {c}{BOLD}{icon} [{sev}]{RESET} {c}{cid}{RESET} — {name}")
-        print(f"     Resource : {res}")
-        print(f"     File     : {fp}")
-        print(f"::{ann}::{cid} [{sev}] {name} — {res} ({fp})")
-        print()
-
-    print(f"{BOLD}{'─'*64}{RESET}")
-    summary = "  Summary: " + "  ".join(
-        f"{COLORS.get(s, RESET)}{BOLD}{s}: {n}{RESET}"
-        for s, n in sorted(counts.items(), key=lambda x: ["CRITICAL","HIGH","MEDIUM","LOW","INFO"].index(x[0]) if x[0] in ["CRITICAL","HIGH","MEDIUM","LOW","INFO"] else 99)
-    )
-    print(summary)
-    print(f"  Passed: \033[32m{passed}{RESET}")
-    print(f"{BOLD}{'─'*64}{RESET}\n")
-EOF
 
           # Normalise SARIF filename for upload step
           [ -f results_tf.sarif ] && mv results_tf.sarif checkov-results.sarif \
