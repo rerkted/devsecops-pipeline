@@ -40,26 +40,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Resolve ZAP fail action
-        id: zap-config
-        run: |
-          # ZAP fail_action controls the -I flag:
-          #   true  = fail on WARN and above (Medium+)
-          #   false = fail on FAIL only (High) — adds -I flag internally
-          # NONE threshold uses continue-on-error on the scan step instead
-          case "${{ inputs.severity-threshold }}" in
-            LOW|MEDIUM) echo "fail=true"  >> $GITHUB_OUTPUT ;;
-            HIGH)       echo "fail=false" >> $GITHUB_OUTPUT ;;
-            NONE)       echo "fail=false" >> $GITHUB_OUTPUT ;;
-            *)          echo "fail=false" >> $GITHUB_OUTPUT ;;
-          esac
-
       - name: ZAP baseline scan
         uses: zaproxy/action-baseline@v0.12.0
+        # NONE = scan only, never block. All other thresholds block on any finding.
+        # fail_action omitted — defaults to true (fail on any alert).
+        # For precise HIGH-only filtering a ZAP config file would be required.
         continue-on-error: ${{ inputs.severity-threshold == 'NONE' }}
         with:
           target: ${{ inputs.target-url }}
-          fail_action: ${{ steps.zap-config.outputs.fail }}
           cmd_options: '-a'
 
       - name: Upload ZAP HTML report
