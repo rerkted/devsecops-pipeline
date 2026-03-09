@@ -47,6 +47,7 @@ jobs:
           # -I = do not return failure on WARN (medium); only FAIL-level alerts exit non-zero
           set +e
           docker run \
+            --user root \
             -v ${{ github.workspace }}:/zap/wrk/:rw \
             --network=host \
             ghcr.io/zaproxy/zaproxy:stable \
